@@ -25,7 +25,7 @@ import opts
 def language_eval(dataset, preds, model_id, image_root, split):
     import sys
     sys.path.append("coco-caption")
-    annFile = 'coco-caption/annotations/captions_val2014.json'
+    annFile = 'flickr8k_val.json'
     from pycocotools.coco import COCO
     from misc.correct_coco_eval_cap import CorrectCOCOEvalCap
 
