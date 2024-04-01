@@ -203,7 +203,6 @@ class DataLoader(data.Dataset):
                 for i in range(len(boxes_batch)):
                     valid_len = min(max_att_len, boxes_batch[i].shape[0])
                     data['boxes'][i*seq_per_img:(i+1)*seq_per_img, :boxes_batch[i].shape[0]] = boxes_batch[i][:valid_len]
-                    print(f"boxes_batch[i]: {boxes_batch[i].shape} {max_att_len}\n", )
             # except Exception as e:
             #     print("boxes_batch[i]:\n", boxes_batch[i])
             #     print(data['boxes'].shape)
