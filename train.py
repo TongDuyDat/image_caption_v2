@@ -119,7 +119,6 @@ def train(opt):
                 sc_flag = False
 
             epoch_done = False
-
         start = time.time()
         # Load data from train split (0)
         data = loader.get_batch('train')
@@ -137,7 +136,6 @@ def train(opt):
 
         if not sc_flag:
             if opt.use_box:
-                print(f"[INFO] bbox size: {boxes.shape}")
                 loss = crit(dp_model(fc_feats, att_feats, boxes, labels, att_masks), labels[:,1:], masks[:,1:])
             else:
                 loss = crit(dp_model(fc_feats, att_feats, labels, att_masks), labels[:,1:], masks[:,1:])

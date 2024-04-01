@@ -198,15 +198,17 @@ class DataLoader(data.Dataset):
         data['infos'] = infos
 
         if self.use_box:
-            try:
+            # try:
                 data['boxes'] = np.zeros([len(boxes_batch)*seq_per_img, max_att_len, boxes_batch[0].shape[1]], dtype = 'float32')
                 for i in range(len(boxes_batch)):
-                    data['boxes'][i*seq_per_img:(i+1)*seq_per_img, :boxes_batch[i].shape[0]] = boxes_batch[i]
-            except Exception as e:
-                print("boxes_batch[i]:\n", boxes_batch[i])
-                print(data['boxes'].shape)
-                print('Error in loading box feature!', e)
-                print('\tThis dataloader will use only text information...')
+                    valid_len = min(max_att_len, boxes_batch[i].shape[0])
+                    data['boxes'][i*seq_per_img:(i+1)*seq_per_img, :boxes_batch[i].shape[0]] = boxes_batch[i][:valid_len]
+                    print(f"boxes_batch[i]: {boxes_batch[i].shape} {max_att_len}\n", )
+            # except Exception as e:
+            #     print("boxes_batch[i]:\n", boxes_batch[i])
+            #     print(data['boxes'].shape)
+            #     print('Error in loading box feature!', e)
+            #     print('\tThis dataloader will use only text information...')
         return data
 
     # It's not coherent to make DataLoader a subclass of Dataset, but essentially, we only need to implement the following to functions,

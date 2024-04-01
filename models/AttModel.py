@@ -27,6 +27,7 @@ from .CaptionModel import CaptionModel
 
 def sort_pack_padded_sequence(input, lengths):
     sorted_lengths, indices = torch.sort(lengths, descending=True)
+    sorted_lengths_cpu = sorted_lengths.cpu()
     tmp = pack_padded_sequence(input[indices], sorted_lengths, batch_first=True)
     inv_ix = indices.clone()
     inv_ix[indices] = torch.arange(0,len(indices)).type_as(inv_ix)
@@ -39,7 +40,7 @@ def pad_unsort_packed_sequence(input, inv_ix):
 
 def pack_wrapper(module, att_feats, att_masks):
     if att_masks is not None:
-        packed, inv_ix = sort_pack_padded_sequence(att_feats, att_masks.data.long().sum(1))
+        packed, inv_ix = sort_pack_padded_sequence(att_feats, att_masks.data.long().sum(1).cpu())
         return pad_unsort_packed_sequence(PackedSequence(module(packed[0]), packed[1]), inv_ix)
     else:
         return module(att_feats)
