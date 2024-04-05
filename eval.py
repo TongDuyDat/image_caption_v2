@@ -114,7 +114,7 @@ parser.add_argument('--verbose_loss', type=int, default=0,
 opt = parser.parse_args()
 
 # Load infos
-with open(opt.infos_path) as f:
+with open(opt.infos_path, 'rb') as f:
     infos = cPickle.load(f)
 
 # override and collect parameters
