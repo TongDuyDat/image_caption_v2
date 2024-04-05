@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+import platform
 
 import torch
 import torch.nn as nn
@@ -47,7 +48,10 @@ def language_eval(dataset, preds, model_id, image_root, split):
     cocoRes = coco.loadRes(cache_path)
     cocoEval = CorrectCOCOEvalCap(coco, cocoRes)
     cocoEval.params['image_id'] = cocoRes.getImgIds()
+    print("cocoRes:", cocoRes)
+    print("cocoEval before evaluate:", cocoEval.eval)
     cocoEval.evaluate()
+    print("cocoEval after evaluate:", cocoEval.eval)
 
     if image_root:
         # Save cocoEval and any other relevant information into a pickle to be used
@@ -146,8 +150,17 @@ def eval_split(model, crit, loader, eval_kwargs={}):
                 entry['file_name'] = data['infos'][k]['file_path']
             predictions.append(entry)
             if eval_kwargs.get('dump_images', 0) == 1:
-                # dump the raw image to vis/ folder
-                cmd = 'cp "' + os.path.join(eval_kwargs['image_root'], data['infos'][k]['file_path']) + '" vis/imgs/' + str(image_id) + '.jpg' # still gross
+                # Construct the source and destination paths
+                source_path = os.path.join(eval_kwargs['image_root'], data['infos'][k]['file_path'])
+                destination_path = f"vis/imgs/{image_id}.jpg"
+                
+                # Define the command based on the operating system
+                if platform.system() == "Windows":
+                    cmd = f'copy "{source_path}" "{destination_path}"'
+                else:
+                    cmd = f'cp "{source_path}" "{destination_path}"'
+
+                # Print and execute the command
                 print(cmd)
                 os.system(cmd)
 
