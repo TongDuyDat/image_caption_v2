@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
+from functools import reduce
 import collections
 import torch
 import torch.nn as nn
@@ -373,7 +373,7 @@ def want_to_continue(found_issue):
     yes = {'yes','y', 'ye', 'Y'}
     no = {'no','n','','N'}
 
-    choice = raw_input().lower()
+    choice = input().lower()
     if choice in yes:
         return True
     elif choice in no:

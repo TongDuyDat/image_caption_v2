@@ -3,6 +3,7 @@
 # Licensed under the terms of the MIT license.
 # Please see LICENSE file in the project root for terms.
 ##########################################################
+from turtle import pd
 import numpy
 import os
 import sys
@@ -215,9 +216,9 @@ class OutputPaths:
         self.image_dir = os.path.join(self.out_dir, OutputPaths.IMAGE_DIR_NAME)
         # For now, just fail if the directory already exists, so we don't
         # overwrite anything accidentally.
-        os.makedirs(self.out_dir)
-        os.makedirs(self.image_report_dir)
-        os.makedirs(self.image_dir)
+        os.makedirs(self.out_dir, exist_ok=True)
+        os.makedirs(self.image_report_dir, exist_ok=True)
+        os.makedirs(self.image_dir, exist_ok=True)
         # Create some specific relevant paths
         self.report_index_path = os.path.join(self.out_dir,
                                               OutputPaths.INDEX_HTML)
@@ -233,8 +234,8 @@ class RunOutputPaths:
         self.run_dir = os.path.join(self.output_paths.out_dir, run_name)
         self.plot_dir = os.path.join(self.run_dir,
                                      RunOutputPaths.PLOT_DIR_NAME)
-        os.makedirs(self.run_dir)
-        os.makedirs(self.plot_dir)
+        os.makedirs(self.run_dir, exist_ok=True)
+        os.makedirs(self.plot_dir, exist_ok=True)
         self.index_path = os.path.join(self.run_dir, OutputPaths.INDEX_HTML)
 
     def histogram_image_path(self, column_name):
@@ -506,7 +507,11 @@ def _create_image_report(output_paths, image_data_frame, image_id):
                                          output_paths.image_report_dir)
         run_names = image_data_frame.columns
         first_run_name = run_names[0]
+        text = "/kaggle/input/d/adityajn105/flickr8k/Images"
+        new = "D:/NCKH/ImageCaption/Dataset/Flickr8k_Dataset"
         original_path = image_data_frame[first_run_name][EvalColumns.PATH]
+        original_path = original_path.replace(text, new)
+        # print(original_path)
         _copy_and_write_image(
             image_report_file, image_dir_for_html, original_path, image_id)
         _write_header(image_report_file, 'Generated caption(s)')
@@ -553,9 +558,10 @@ def _add_all_runs_table(html_file, data_frame, report_data_list):
 def _create_single_run_summary(report_data, run_name, single_run_data_frame):
     # type(ReportData, str, DataFrame) -> DataFrame
     extra_means = single_run_data_frame[EXTRA_SUMMARY_COLUMNS].mean()
-    return Series(report_data.coco_eval.eval).rename(
-        index={COCO_EVAL_SPICE_COLUMN: EvalColumns.SPICE}).append(
-        extra_means).to_frame(run_name)
+    df = Series(report_data.coco_eval.eval).rename(
+        index={COCO_EVAL_SPICE_COLUMN: EvalColumns.SPICE})
+    df = concat([df, extra_means]).to_frame(run_name)
+    return df
 
 
 def _add_metric_pages(html_file, run_output_paths, report_config, data_frame):
@@ -683,6 +689,9 @@ def _plot_histogram(data_frame, bins, column_name):
 
 def _write_html_image(html_file, image_src, link, align=None):
     # type: (IO, str, str, Optional[str]) -> None
+    # if len(image_src.split("\\")) == 3:
+    #     _, folder, imgae = image_src.split("\\")
+    #     image_src = f"D:/NCKH/ImageCaption/object_relation_transformer/reports/single_run/{folder}/{imgae}"
     if align:
         align_string = "align='%s'" % align
     else:
@@ -693,8 +702,11 @@ def _write_html_image(html_file, image_src, link, align=None):
 
 def _add_unlabeled_images(html_file, image_dir):
     # type: (IO, str) -> None
+    print(html_file, image_dir)
     _write_header(html_file, 'Unlabeled images')
     html_file.write('to be added at some point?')
+    html_file.write("<a href='%s'></a>"% (
+        "reports/single_run/image_reports"))
     # TODO: implement this to allow us to view unlabeled images (no ground
     # truth).
 
