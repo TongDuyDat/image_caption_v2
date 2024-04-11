@@ -15,7 +15,7 @@ from .OldModel import ShowAttendTellModel, AllImgModel
 from .AttModel import *
 from .TransformerModel import TransformerModel
 from .RelationTransformerModel import RelationTransformerModel
-
+from .RelationTransformerModel_EfficientAttention import  RelationTransformerModelEfficient
 def setup(opt):
 
     if opt.caption_model == 'fc':
@@ -50,6 +50,8 @@ def setup(opt):
         model = TransformerModel(opt)
     elif opt.caption_model == 'relation_transformer':
         model = RelationTransformerModel(opt)
+    elif opt.caption_model == 'relation_transformer_eff':
+        model = RelationTransformerModelEfficient(opt)
     else:
         raise Exception("Caption model not supported: {}".format(opt.caption_model))
 
