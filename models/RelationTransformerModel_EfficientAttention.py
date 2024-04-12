@@ -89,10 +89,10 @@ class Encoder(nn.Module):
         self.layers = clones(layer, N)
         self.norm = LayerNorm(layer.size)
 
-    def forward(self, x, W, H):
+    def forward(self, x, box, mask):
         "Pass the input (and mask) through each layer in turn."
         for layer in self.layers:
-            x = layer(x, W, H)
+            x = layer(x, box, mask)
         return self.norm(x)
 
 
@@ -137,9 +137,9 @@ class EncoderLayer(nn.Module):
         self.sublayer = clones(SublayerConnection(size, dropout), 2)
         self.size = size
 
-    def forward(self, x, W, H):
+    def forward(self, x, box, mask):
         "Follow Figure 1 (left) for connections."
-        x = self.sublayer[0](x, lambda x: self.self_attn(x,W, H))
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, box, mask))
         return self.sublayer[1](x, self.feed_forward)
 
 
@@ -334,50 +334,82 @@ def box_attention(
     return output, w_mn
 
 
-class BoxMultiHeadedAttention(nn.Module):
+class BoxMultiHeadedAttentionEff(nn.Module):
     """
     Self-attention layer with relative position weights.
     Following the paper "Relation Networks for Object Detection" in https://arxiv.org/pdf/1711.11575.pdf
     """
-
     def __init__(
         self,
-        h,
+        heads,
         d_model,
+        sr_ratio=1,
         trignometric_embedding=True,
         legacy_extra_skip=False,
         dropout=0.1,
     ):
-        "Take in model size and number of heads."
-        super(BoxMultiHeadedAttention, self).__init__()
-
-        assert d_model % h == 0
+        super(BoxMultiHeadedAttentionEff, self).__init__()
+        # assert d_model % heads == 0
+        
         self.trignometric_embedding = trignometric_embedding
         self.legacy_extra_skip = legacy_extra_skip
-
-        # We assume d_v always equals d_k
-        self.h = h
-        self.d_k = d_model // h
+        
+        self.heads = heads
+        self.scale = heads**0.5
+        
+        self.d_model = d_model
+        self.sr_ratio = sr_ratio
+        
         if self.trignometric_embedding:
             self.dim_g = 64
         else:
             self.dim_g = 4
         geo_feature_dim = self.dim_g
 
+        if sr_ratio > 1:
+            self.sr = nn.Conv2d(
+                d_model,
+                d_model,
+                kernel_size=sr_ratio + 1,
+                stride=sr_ratio,
+                padding=sr_ratio // 2,
+                groups=d_model,
+            )
+            self.sr_norm = nn.LayerNorm(d_model, eps=1e-6)
+        
+        self.up = nn.Sequential(
+            nn.Conv2d(
+                d_model,
+                sr_ratio * sr_ratio * d_model,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                groups=d_model,
+            ),
+            nn.PixelShuffle(upscale_factor=sr_ratio),
+        )
+        
+        self.q = nn.Linear(d_model, d_model, bias=True)
+        self.k = nn.Linear(d_model, d_model, bias=True)
+        self.v = nn.Linear(d_model, d_model, bias=True)
+        
+        self.up_norm = nn.LayerNorm(d_model, eps=1e-6)
+        self.proj = nn.Linear(d_model, d_model)
+        
         # matrices W_q, W_k, W_v, and one last projection layer
-        self.linears = clones(nn.Linear(d_model, d_model), 4)
+        # self.linears = clones(nn.Linear(d_model, d_model), 4)
         self.WGs = clones(nn.Linear(geo_feature_dim, 1, bias=True), 8)
 
         self.attn = None
         self.dropout = nn.Dropout(p=dropout)
-
-    def forward(self, input_query, input_key, input_value, input_box, mask=None):
+        
+    def forward(self, input_query, input_key, input_value, input_box, H, W, mask=None):
         "Implements Figure 2 of Relation Network for Object Detection"
         if mask is not None:
             # Same mask applied to all h heads.
             mask = mask.unsqueeze(1)
-        nbatches = input_query.size(0)
-
+        # nbatches = input_query.size(0)
+        B, N, C = input_query.shape
         # tensor with entries R_mn given by a hardcoded embedding of the relative position between bbox_m and bbox_n
         relative_geometry_embeddings = utils.BoxRelationalEmbedding(
             input_box, trignometric_embedding=self.trignometric_embedding
@@ -385,12 +417,6 @@ class BoxMultiHeadedAttention(nn.Module):
         flatten_relative_geometry_embeddings = relative_geometry_embeddings.view(
             -1, self.dim_g
         )
-
-        # 1) Do all the linear projections in batch from d_model => h x d_k
-        query, key, value = [
-            l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-            for l, x in zip(self.linears, (input_query, input_key, input_value))
-        ]
         box_size_per_head = list(relative_geometry_embeddings.shape[:3])
         box_size_per_head.insert(1, 1)
         relative_geometry_weights_per_head = [
@@ -399,28 +425,35 @@ class BoxMultiHeadedAttention(nn.Module):
         ]
         relative_geometry_weights = torch.cat((relative_geometry_weights_per_head), 1)
         relative_geometry_weights = F.relu(relative_geometry_weights)
+        
+        q = self.q(input_query).view(B, N, self.heads, C//self.heads).permute(0, 2, 1, 3) # B, heads, N, C//h
+        
+        if self.sr_ratio > 1:
+            input_key = input_key.permute(0, 2, 1).reshape(B, C, H, W)
+            input_key = self.sr(input_key).reshape(B, C, -1).permute(0, 2, 1)
+            input_key = self.sr_norm(input_key)
 
-        # 2) Apply attention on all the projected vectors in batch.
-        x, self.box_attn = box_attention(
-            query,
-            key,
-            value,
-            relative_geometry_weights,
-            mask=mask,
-            dropout=self.dropout,
+            input_value = input_value.permute(0, 2, 1).reshape(B, C, H, W)
+            input_value = self.sr(input_value).reshape(B, C, -1).permute(0, 2, 1)
+            input_value = self.sr_norm(input_value)
+
+        k = self.k(input_key).reshape(B, -1, self.heads, C // self.heads).permute(0, 2, 1, 3) # B, heads, N, C//h
+        v = self.v(input_value).reshape(B, -1, self.heads, C // self.heads).permute(0, 2, 1, 3) # B, heads, N, C//h
+        
+        attn = (q@k.transpose(-2, -1))
+        
+        attn = (attn + relative_geometry_weights)*self.scale
+        
+        attn = attn.softmax(dim=-1)
+        
+        out = (attn @ v).transpose(1, 2).reshape(B, N, C)
+
+        identity = v.transpose(-1, -2).reshape(
+            B, C, H // self.sr_ratio, W // self.sr_ratio
         )
-
-        # 3) "Concat" using a view and apply a final linear.
-        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
-
-        # An extra internal skip connection is added. This is only
-        # kept here for compatibility with some legacy models. In
-        # general, there is no advantage in using it, as there is
-        # already an outer skip connection surrounding this layer.
-        if self.legacy_extra_skip:
-            x = input_value + x
-
-        return self.linears[-1](x)
+        identity = self.up(identity).flatten(2).transpose(1, 2)
+        out = self.proj(out + self.up_norm(identity))
+        return out
 
 
 class PositionwiseFeedForward(nn.Module):
@@ -485,7 +518,7 @@ class RelationTransformerModelEfficient(CaptionModel):
     ):
         "Helper: Construct a model from hyperparameters."
         c = copy.deepcopy
-        eff_attn = EfficientAttention(h, d_model)
+        eff_attn = BoxMultiHeadedAttention(h, d_model)
         attn = MultiHeadedAttention(h, d_model)
         ff = PositionwiseFeedForward(d_model, d_ff, dropout)
         position = PositionalEncoding(d_model, dropout)
